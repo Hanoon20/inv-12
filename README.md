@@ -14,7 +14,7 @@ A cinematic digital wedding invitation in deep wine, blush and gold. The design 
 9. **Venue**: an arch-shaped image opens to full screen, with directions and a map.
 10. **Closing dua**, plus Add to Calendar (.ics), Share on WhatsApp and Call buttons.
 
-Throughout the page: Lenis smooth scrolling, GSAP ScrollTrigger parallax, falling rose petals, a film-grain overlay and a scroll progress bar. If the device has "reduce motion" turned on, the animations are switched off.
+Throughout the page: Lenis smooth scrolling (phones keep their native touch scrolling), GSAP ScrollTrigger parallax, falling rose petals, a film-grain overlay and a scroll progress bar. If the device has "reduce motion" turned on, the animations are switched off.
 
 ## Edit your details
 Everything is in **`assets/js/config.js`**: names, parents, date, venue, events, programme, story and phone number. Change it and refresh the page.

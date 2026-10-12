@@ -171,11 +171,14 @@
       c: colors[(Math.random() * colors.length) | 0],
       a: 0.35 + Math.random() * 0.45,
     });
+    let lastW = 0;
     const resize = () => {
       dpr = Math.min(devicePixelRatio || 1, 2);
       w = cv.width = innerWidth * dpr;
       h = cv.height = innerHeight * dpr;
-      list = Array.from({ length: count() }, () => make(true));
+      // Mobile browsers fire resize when the address bar hides; only respawn on real width changes.
+      if (innerWidth !== lastW) list = Array.from({ length: count() }, () => make(true));
+      lastW = innerWidth;
     };
     resize();
     addEventListener("resize", resize);
@@ -196,6 +199,7 @@
       ctx.restore();
     };
     const loop = () => {
+      if (document.hidden) return requestAnimationFrame(loop);
       ctx.clearRect(0, 0, w, h);
       const v = getVelocity ? getVelocity() : 0;
       for (const p of list) {
@@ -222,7 +226,11 @@
   const hasGSAP = window.gsap && window.ScrollTrigger;
   let lenis = null;
 
-  if (hasGSAP) gsap.registerPlugin(ScrollTrigger);
+  if (hasGSAP) {
+    gsap.registerPlugin(ScrollTrigger);
+    // Don't recalculate every pin when the mobile address bar shows/hides (causes jumps).
+    ScrollTrigger.config({ ignoreMobileResize: true });
+  }
 
   if (hasGSAP && window.Lenis && !reduced) {
     lenis = new Lenis({
@@ -230,7 +238,7 @@
       easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
       smoothWheel: true,
       wheelMultiplier: 0.9,
-      touchMultiplier: 1.4,
+      syncTouch: false, // phones keep their native momentum scroll
     });
     lenis.on("scroll", ScrollTrigger.update);
     gsap.ticker.add((t) => lenis.raf(t * 1000));
@@ -241,7 +249,6 @@
   petals(() => (lenis ? lenis.velocity : 0));
 
   // Anchor links
-  const nav = $("#nav");
   const scrollTo = (target) => {
     const el = $(target);
     if (!el) return;
@@ -251,25 +258,17 @@
   $$("[data-scroll]").forEach((a) =>
     a.addEventListener("click", (e) => {
       e.preventDefault();
-      nav.classList.remove("is-open");
-      $("#burger").setAttribute("aria-expanded", "false");
       scrollTo(a.getAttribute("href"));
     })
   );
-  $("#burger").addEventListener("click", () => {
-    const open = nav.classList.toggle("is-open");
-    $("#burger").setAttribute("aria-expanded", String(open));
-  });
 
-  // Nav state on scroll
-  let lastY = 0;
-  const onScroll = (y) => {
-    nav.classList.toggle("is-scrolled", y > 40);
-    nav.classList.toggle("is-hidden", y > 500 && y > lastY && !nav.classList.contains("is-open"));
-    lastY = y;
-  };
-  if (lenis) lenis.on("scroll", ({ scroll }) => onScroll(scroll));
-  else addEventListener("scroll", () => onScroll(scrollY), { passive: true });
+  // Map: on touch screens the iframe would swallow the swipe, so it needs a tap to activate.
+  const mapWrap = $("#venueMap");
+  $("#mapCover").addEventListener("click", () => mapWrap.classList.add("is-active"));
+  if (hasGSAP) {
+    const deactivate = () => mapWrap.classList.remove("is-active");
+    ScrollTrigger.create({ trigger: mapWrap, start: "top bottom", end: "bottom top", onLeave: deactivate, onLeaveBack: deactivate });
+  }
 
   /* ---------------- Intro envelope ---------------- */
   const intro = $("#intro");
@@ -368,11 +367,7 @@
   gsap.fromTo(".verse__star", { rotate: -40 }, { rotate: 60, ease: "none", scrollTrigger: { trigger: ".verse", start: "top bottom", end: "bottom top", scrub: true } });
 
   /* ---------------- Couple: cards swing in from 3D space ---------------- */
-  const coupleTl = gsap.timeline({ scrollTrigger: { trigger: ".couple__grid", start: "top 88%", end: "top 30%", scrub: 1 } });
-  coupleTl
-    .from('[data-person="groom"]', { rotationY: 70, x: -160, z: -300, opacity: 0, ease: "power2.out" }, 0)
-    .from('[data-person="bride"]', { rotationY: -70, x: 160, z: -300, opacity: 0, ease: "power2.out" }, 0)
-    .from(".couple__and", { scale: 0, rotate: -180, opacity: 0, ease: "back.out(1.6)" }, 0.3);
+  /* (scenes that differ by screen size live in the matchMedia block below) */
 
   /* ---------------- Countdown band: unfolds open ---------------- */
   gsap.fromTo(".countdown__band", { clipPath: "inset(0% 50% 0% 50%)" }, { clipPath: "inset(0% 0% 0% 0%)", ease: "power2.out", scrollTrigger: { trigger: ".countdown", start: "top 90%", end: "top 45%", scrub: 1 } });
@@ -384,8 +379,13 @@
   /* ---------------- Responsive scroll scenes ---------------- */
   const mm = gsap.matchMedia();
 
-  // Desktop: pinned horizontal 3D milestones + pinned venue reveal
+  // Desktop: couple swing-in, pinned horizontal 3D milestones, pinned venue reveal
   mm.add("(min-width: 961px)", () => {
+    gsap.timeline({ scrollTrigger: { trigger: ".couple__grid", start: "top 88%", end: "top 30%", scrub: 1 } })
+      .from('[data-person="groom"]', { rotationY: 70, x: -160, z: -300, opacity: 0, ease: "power2.out" }, 0)
+      .from('[data-person="bride"]', { rotationY: -70, x: 160, z: -300, opacity: 0, ease: "power2.out" }, 0)
+      .from(".couple__and", { scale: 0, rotate: -180, opacity: 0, ease: "back.out(1.6)" }, 0.3);
+
     const track = $("#milestoneTrack");
     const dist = () => track.scrollWidth - innerWidth;
     const horiz = gsap.to(track, {
@@ -408,8 +408,11 @@
       .from("#venueCard", { y: 140, opacity: 0, rotationX: -30, transformPerspective: 1000, ease: "power3.out" }, 0.45);
   });
 
-  // Mobile/tablet: lighter versions
+  // Mobile/tablet: lighter versions, everything moves vertically only
   mm.add("(max-width: 960px)", () => {
+    $$(".person, .couple__and").forEach((el) =>
+      gsap.from(el, { y: 70, rotationX: -20, opacity: 0, transformPerspective: 900, transformOrigin: "50% 100%", duration: 1.4, ease: "expo.out", scrollTrigger: { trigger: el, start: "top 90%" } })
+    );
     $$(".milestone, .milestones__intro").forEach((card) =>
       gsap.from(card, { y: 80, rotationX: -25, opacity: 0, transformPerspective: 900, duration: 1.4, ease: "expo.out", scrollTrigger: { trigger: card, start: "top 88%" } })
     );
@@ -423,7 +426,7 @@
   ScrollTrigger.batch(".event", {
     start: "top 88%",
     once: true,
-    onEnter: (batch) => gsap.from(batch, { y: 140, rotationX: 38, z: -200, opacity: 0, transformOrigin: "50% 100%", duration: 1.6, stagger: 0.15, ease: "expo.out", clearProps: "transform" }),
+    onEnter: (batch) => gsap.from(batch, { y: innerWidth < 720 ? 80 : 140, rotationX: innerWidth < 720 ? 20 : 38, z: innerWidth < 720 ? 0 : -200, opacity: 0, transformOrigin: "50% 100%", duration: 1.6, stagger: 0.15, ease: "expo.out", clearProps: "transform" }),
   });
   if (matchMedia("(pointer: fine)").matches) {
     $$(".event").forEach((card) => {
@@ -442,7 +445,7 @@
   const wide = () => innerWidth > 720;
   $$(".tl").forEach((item, i) => {
     const fromLeft = i % 2 === 0;
-    gsap.from(item.querySelector(".tl__card"), { x: () => (wide() ? (fromLeft ? 90 : -90) : 40), opacity: 0, rotationY: () => (wide() ? (fromLeft ? -25 : 25) : 0), transformPerspective: 900, duration: 1.4, ease: "expo.out", scrollTrigger: { trigger: item, start: "top 82%" } });
+    gsap.from(item.querySelector(".tl__card"), { x: () => (wide() ? (fromLeft ? 90 : -90) : 0), y: () => (wide() ? 0 : 40), opacity: 0, rotationY: () => (wide() ? (fromLeft ? -25 : 25) : 0), transformPerspective: 900, duration: 1.4, ease: "expo.out", scrollTrigger: { trigger: item, start: "top 82%" } });
     gsap.from(item.querySelector(".tl__time"), { x: () => (wide() ? (fromLeft ? -60 : 60) : 0), opacity: 0, duration: 1.4, ease: "expo.out", scrollTrigger: { trigger: item, start: "top 82%" } });
     ScrollTrigger.create({ trigger: item, start: "top 60%", onEnter: () => item.classList.add("is-active"), onLeaveBack: () => item.classList.remove("is-active") });
   });
@@ -451,13 +454,8 @@
   gsap.from(".closing__crescent", { rotate: -90, scale: 0.4, opacity: 0, duration: 1.8, ease: "expo.out", scrollTrigger: { trigger: ".closing", start: "top 75%" } });
   gsap.fromTo(".closing__glow", { scale: 0.6, opacity: 0.4 }, { scale: 1.2, opacity: 1, ease: "none", scrollTrigger: { trigger: ".closing", start: "top bottom", end: "bottom bottom", scrub: true } });
 
-  /* ---------------- Progress bar + active nav link ---------------- */
+  /* ---------------- Progress bar ---------------- */
   gsap.to("#progressBar", { scaleX: 1, ease: "none", scrollTrigger: { start: 0, end: "max", scrub: 0.3 } });
-  $$(".nav__links a").forEach((a) => {
-    const sec = $(a.getAttribute("href"));
-    if (!sec) return;
-    ScrollTrigger.create({ trigger: sec, start: "top 50%", end: "bottom 50%", onToggle: (self) => a.classList.toggle("is-active", self.isActive) });
-  });
 
   // Recalculate once images/fonts settle
   addEventListener("load", () => ScrollTrigger.refresh());
